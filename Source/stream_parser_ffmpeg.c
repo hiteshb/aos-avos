@@ -611,7 +611,7 @@ DBGP serprintf( "arate=%d; ascale=%d\n", audio->rate, audio->scale );
 				if( sub->format == SUB_FORMAT_SSA ) {
 					sub->gfx = 1;
 					serprintf( "stream_parser_ffmpeg: ASS/SSA subtitle stream %d marked gfx for libass, codec=%s extraDataSize=%d\n",
-						i, sub->codec_name, sub->extraDataSize2 );
+						i, sub->codec_name, codecpar->extradata_size );
 				}
 #endif
 				sub->stream         = i;

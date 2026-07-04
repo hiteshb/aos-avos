@@ -121,6 +121,10 @@ static void send_subtitle(avos_mp_t *mp, avos_mp_video_t *video)
 	sub_time = sub_frame->time - SUBTITLE_SEND_OFFSET;
 
 	if (video->s->av.sub[video->s->av.subs].gfx) {
+		serprintf("avos_mp_video: sending bitmap subtitle time=%d duration=%d frame=%dx%d window=%d,%d %dx%d valid=%d\n",
+			sub_time, sub_frame->duration, sub_frame->width, sub_frame->height,
+			sub_frame->window.x, sub_frame->window.y, sub_frame->window.width, sub_frame->window.height,
+			sub_frame->valid);
 		msg = avos_msg_new_bitmap_subtitle(0, sub_time, sub_frame->duration, (IMAGE *)sub_frame);
 	} else {
 		msg = avos_msg_new_text_subtitle(0, sub_time, sub_frame->duration, sub_frame->data[0]);

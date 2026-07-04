@@ -20,11 +20,13 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 struct SUBTITLE_LIBASS_RENDERER {
 	ASS_Library *library;
 	ASS_Renderer *renderer;
 	ASS_Track *track;
+	const char *default_font;
 };
 
 static int clamp_int( int value, int low, int high )
@@ -46,6 +48,28 @@ static void subtitle_libass_message_cb( int level, const char *fmt, va_list va, 
 	serprintf( "subtitle_libass: libass[%d]: %s\n", level, msg );
 }
 
+static const char *subtitle_libass_find_default_font( void )
+{
+	static const char *candidates[] = {
+		"/system/fonts/NotoSans-Regular.ttf",
+		"/system/fonts/Roboto-Regular.ttf",
+		"/system/fonts/DroidSans.ttf",
+		"/product/fonts/NotoSans-Regular.ttf",
+		"/system_ext/fonts/NotoSans-Regular.ttf",
+		NULL,
+	};
+
+	for( int i = 0; candidates[i]; i++ ) {
+		if( access( candidates[i], R_OK ) == 0 ) {
+			serprintf( "subtitle_libass: selected default font [%s]\n", candidates[i] );
+			return candidates[i];
+		}
+	}
+
+	serprintf( "subtitle_libass: no Android default font file found, using libass provider fallback\n" );
+	return NULL;
+}
+
 static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
 {
 	SUBTITLE_LIBASS_RENDERER *renderer = acalloc( 1, sizeof( *renderer ) );
@@ -63,6 +87,10 @@ static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
 	ass_set_message_cb( renderer->library, subtitle_libass_message_cb, NULL );
 
 	ass_set_extract_fonts( renderer->library, 1 );
+	if( access( "/system/fonts", R_OK ) == 0 ) {
+		ass_set_fonts_dir( renderer->library, "/system/fonts" );
+		serprintf( "subtitle_libass: font directory set to [/system/fonts]\n" );
+	}
 
 	renderer->renderer = ass_renderer_init( renderer->library );
 	if( !renderer->renderer ) {
@@ -70,8 +98,10 @@ static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
 		goto ErrorExit;
 	}
 
-	ass_set_fonts( renderer->renderer, NULL, "sans-serif", ASS_FONTPROVIDER_AUTODETECT, NULL, 1 );
-	serprintf( "subtitle_libass: renderer ready\n" );
+	renderer->default_font = subtitle_libass_find_default_font();
+	ass_set_fonts( renderer->renderer, renderer->default_font, "sans-serif", ASS_FONTPROVIDER_AUTODETECT, NULL, 1 );
+	serprintf( "subtitle_libass: renderer ready default_font=%s provider=autodetect\n",
+		renderer->default_font ? renderer->default_font : "(null)" );
 	return renderer;
 
 ErrorExit:
@@ -194,7 +224,8 @@ int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int
 	}
 
 	ass_set_frame_size( renderer->renderer, width, height );
-	serprintf( "subtitle_libass: render request time=%d duration=%d frame=%dx%d\n", time_ms, duration_ms, width, height );
+	serprintf( "subtitle_libass: render request time=%d duration=%d frame=%dx%d default_font=%s\n",
+		time_ms, duration_ms, width, height, renderer->default_font ? renderer->default_font : "(null)" );
 
 	int changed = 0;
 	ASS_Image *images = ass_render_frame( renderer->renderer, renderer->track, time_ms, &changed );
