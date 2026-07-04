@@ -243,6 +243,13 @@ DBGS serprintf("sub_dec_open_SSA\r\n");
 	if( sub->extraData2 && sub->extraDataSize2 ) {
 		priv->renderer = subtitle_libass_open_codec_private( sub->extraData2, sub->extraDataSize2 );
 		if( priv->renderer ) {
+			STREAM *stream = (STREAM*)ctx;
+			if( stream && stream->parser && stream->parser->add_subtitle_font_attachments ) {
+				int font_ret = stream->parser->add_subtitle_font_attachments( stream, priv->renderer );
+				serprintf( "codec_ssa: embedded ASS/SSA font attachment load result=%d\n", font_ret );
+			} else {
+				serprintf( "codec_ssa: no parser font attachment callback available\n" );
+			}
 			priv->use_libass = 1;
 			sub->gfx = 1;
 			serprintf( "codec_ssa: embedded SSA/ASS will render through libass bitmap path\n" );

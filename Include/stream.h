@@ -281,6 +281,7 @@ typedef struct STREAM_PARSER_STATS *
             (*PARSER_GET_STATS)      ( struct STREAM *s, struct STREAM_PARSER_STATS *stats );
 typedef int (*PARSER_GET_TIME)       ( struct STREAM *s, int *total );
 typedef int (*PARSER_GET_TIME_FOR_POS)( struct STREAM *s, UINT64 for_pos );
+typedef int (*PARSER_ADD_SUBTITLE_FONT_ATTACHMENTS)( struct STREAM *s, void *renderer );
 
 typedef struct stream_parser_str {
 	const char		*name;
@@ -305,6 +306,7 @@ typedef struct stream_parser_str {
 	PARSER_GET_STATS	get_stats;
 	PARSER_GET_TIME		get_time;
 	PARSER_GET_TIME_FOR_POS	get_time_for_pos;
+	PARSER_ADD_SUBTITLE_FONT_ATTACHMENTS add_subtitle_font_attachments;
 } STREAM_PARSER;
 
 //

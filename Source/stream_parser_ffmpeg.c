@@ -27,6 +27,9 @@
 #include "mpeg2.h"
 #include "h264.h"
 #include "hevc.h"
+#ifdef CONFIG_LIBASS
+#include "subtitle_libass.h"
+#endif
 #include "file_info_priv.h"
 #include "iso639.h"
 #include "android_codec.h"
@@ -140,6 +143,72 @@ static int _close( STREAM *s );
 static int _flush_packets( AVQueue *q, const char *tag );
 
 #define ff_p	((FF_PRIV*)s->parser_priv)
+
+#ifdef CONFIG_LIBASS
+static int is_font_attachment_name( const char *name )
+{
+	if( !name || !*name )
+		return 0;
+
+	return !strcmpNC_suffix( name, ".ttf" ) ||
+	       !strcmpNC_suffix( name, ".otf" ) ||
+	       !strcmpNC_suffix( name, ".ttc" ) ||
+	       !strcmpNC_suffix( name, ".otc" ) ||
+	       !strcmpNC_suffix( name, ".woff" ) ||
+	       !strcmpNC_suffix( name, ".woff2" );
+}
+
+static int is_font_attachment_mime( const char *mime )
+{
+	if( !mime || !*mime )
+		return 0;
+
+	return strstr( mime, "font" ) ||
+	       strstr( mime, "opentype" ) ||
+	       strstr( mime, "truetype" ) ||
+	       strstr( mime, "ttf" );
+}
+
+static int _add_subtitle_font_attachments( STREAM *s, void *renderer )
+{
+	if( !s || !ff_p || !ff_p->fmt || !renderer )
+		return 1;
+
+	int added = 0;
+	int skipped = 0;
+
+	for( unsigned int i = 0; i < ff_p->fmt->nb_streams; i++ ) {
+		AVStream *st = ff_p->fmt->streams[i];
+		AVCodecParameters *codecpar = st->codecpar;
+		if( codecpar->codec_type != AVMEDIA_TYPE_ATTACHMENT )
+			continue;
+
+		AVDictionaryEntry *filename = av_dict_get( st->metadata, "filename", NULL, 0 );
+		AVDictionaryEntry *title = av_dict_get( st->metadata, "title", NULL, 0 );
+		AVDictionaryEntry *mime = av_dict_get( st->metadata, "mimetype", NULL, 0 );
+		const char *name = filename ? filename->value : title ? title->value : NULL;
+		const char *mime_value = mime ? mime->value : NULL;
+
+		if( !name )
+			name = "embedded-font";
+
+		if( codecpar->extradata && codecpar->extradata_size > 0 &&
+		    ( is_font_attachment_name( name ) || is_font_attachment_mime( mime_value ) ) ) {
+			if( !subtitle_libass_add_font( (SUBTITLE_LIBASS_RENDERER*)renderer, name,
+					codecpar->extradata, codecpar->extradata_size ) ) {
+				added++;
+			}
+		} else {
+			skipped++;
+			serprintf( "stream_parser_ffmpeg: skipped non-font attachment stream=%u name=%s mime=%s size=%d\n",
+				i, name ? name : "(null)", mime_value ? mime_value : "(null)", codecpar->extradata_size );
+		}
+	}
+
+	serprintf( "stream_parser_ffmpeg: loaded embedded subtitle fonts added=%d skipped=%d\n", added, skipped );
+	return added ? 0 : 1;
+}
+#endif
 
 static struct id_fmt_str {
 	int 	id;
@@ -1733,6 +1802,13 @@ static STREAM_PARSER stream_parser_FFMPEG = {
 	_get_index,
 	NULL,		// start_next
 	_get_stats,
+	NULL,		// get_time
+	NULL,		// get_time_for_pos
+#ifdef CONFIG_LIBASS
+	_add_subtitle_font_attachments,
+#else
+	NULL,
+#endif
 };
 
 #ifndef CONFIG_LIVE555_RTSP

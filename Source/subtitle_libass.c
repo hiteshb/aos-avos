@@ -27,6 +27,7 @@ struct SUBTITLE_LIBASS_RENDERER {
 	ASS_Renderer *renderer;
 	ASS_Track *track;
 	const char *default_font;
+	int embedded_fonts;
 };
 
 static int clamp_int( int value, int low, int high )
@@ -70,6 +71,18 @@ static const char *subtitle_libass_find_default_font( void )
 	return NULL;
 }
 
+static void subtitle_libass_configure_fonts( SUBTITLE_LIBASS_RENDERER *renderer, const char *reason )
+{
+	if( !renderer || !renderer->renderer )
+		return;
+
+	ass_set_fonts( renderer->renderer, renderer->default_font, "sans-serif", ASS_FONTPROVIDER_AUTODETECT, NULL, 1 );
+	serprintf( "subtitle_libass: fonts configured reason=%s default_font=%s embedded_fonts=%d provider=autodetect\n",
+		reason ? reason : "(null)",
+		renderer->default_font ? renderer->default_font : "(null)",
+		renderer->embedded_fonts );
+}
+
 static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
 {
 	SUBTITLE_LIBASS_RENDERER *renderer = acalloc( 1, sizeof( *renderer ) );
@@ -99,9 +112,8 @@ static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
 	}
 
 	renderer->default_font = subtitle_libass_find_default_font();
-	ass_set_fonts( renderer->renderer, renderer->default_font, "sans-serif", ASS_FONTPROVIDER_AUTODETECT, NULL, 1 );
-	serprintf( "subtitle_libass: renderer ready default_font=%s provider=autodetect\n",
-		renderer->default_font ? renderer->default_font : "(null)" );
+	subtitle_libass_configure_fonts( renderer, "initial" );
+	serprintf( "subtitle_libass: renderer ready\n" );
 	return renderer;
 
 ErrorExit:
@@ -178,6 +190,21 @@ void subtitle_libass_close( SUBTITLE_LIBASS_RENDERER *renderer )
 	afree( renderer );
 }
 
+int subtitle_libass_add_font( SUBTITLE_LIBASS_RENDERER *renderer, const char *name, const unsigned char *data, int size )
+{
+	if( !renderer || !renderer->library || !name || !data || size <= 0 ) {
+		serprintf( "subtitle_libass: invalid embedded font renderer=%p name=%s data=%p size=%d\n",
+			renderer, name ? name : "(null)", data, size );
+		return 1;
+	}
+
+	serprintf( "subtitle_libass: adding embedded font [%s] size=%d\n", name, size );
+	ass_add_font( renderer->library, (char*)name, (char*)data, size );
+	renderer->embedded_fonts++;
+	subtitle_libass_configure_fonts( renderer, "embedded-font" );
+	return 0;
+}
+
 int subtitle_libass_process_chunk( SUBTITLE_LIBASS_RENDERER *renderer, const unsigned char *data, int size, int time_ms, int duration_ms )
 {
 	if( !renderer || !renderer->track || !data || size <= 0 ) {
@@ -224,8 +251,9 @@ int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int
 	}
 
 	ass_set_frame_size( renderer->renderer, width, height );
-	serprintf( "subtitle_libass: render request time=%d duration=%d frame=%dx%d default_font=%s\n",
-		time_ms, duration_ms, width, height, renderer->default_font ? renderer->default_font : "(null)" );
+	serprintf( "subtitle_libass: render request time=%d duration=%d frame=%dx%d default_font=%s embedded_fonts=%d\n",
+		time_ms, duration_ms, width, height, renderer->default_font ? renderer->default_font : "(null)",
+		renderer->embedded_fonts );
 
 	int changed = 0;
 	ASS_Image *images = ass_render_frame( renderer->renderer, renderer->track, time_ms, &changed );

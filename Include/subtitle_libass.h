@@ -19,6 +19,7 @@ typedef struct SUBTITLE_LIBASS_RENDERER SUBTITLE_LIBASS_RENDERER;
 SUBTITLE_LIBASS_RENDERER *subtitle_libass_open_codec_private( const unsigned char *data, int size );
 SUBTITLE_LIBASS_RENDERER *subtitle_libass_open_file( const char *path );
 void subtitle_libass_close( SUBTITLE_LIBASS_RENDERER *renderer );
+int subtitle_libass_add_font( SUBTITLE_LIBASS_RENDERER *renderer, const char *name, const unsigned char *data, int size );
 int subtitle_libass_process_chunk( SUBTITLE_LIBASS_RENDERER *renderer, const unsigned char *data, int size, int time_ms, int duration_ms );
 int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int duration_ms, int width, int height, VIDEO_FRAME *frame );
 #endif
