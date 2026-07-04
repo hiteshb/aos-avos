@@ -608,8 +608,11 @@ DBGP serprintf( "arate=%d; ascale=%d\n", audio->rate, audio->scale );
 				sub->format         = fmt;
 				sub->gfx            = (sub->format == SUB_FORMAT_DVD_GFX || sub->format == SUB_FORMAT_PGS) ? 1 : 0;
 #ifdef CONFIG_LIBASS
-				if( sub->format == SUB_FORMAT_SSA )
+				if( sub->format == SUB_FORMAT_SSA ) {
 					sub->gfx = 1;
+					serprintf( "stream_parser_ffmpeg: ASS/SSA subtitle stream %d marked gfx for libass, codec=%s extraDataSize=%d\n",
+						i, sub->codec_name, sub->extraDataSize2 );
+				}
 #endif
 				sub->stream         = i;
 				sub->scale          = st->time_base.num;

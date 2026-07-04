@@ -17,6 +17,8 @@
 
 #include <ass/ass.h>
 #include <libavutil/mem.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
 struct SUBTITLE_LIBASS_RENDERER {
@@ -34,23 +36,42 @@ static int clamp_int( int value, int low, int high )
 	return value;
 }
 
+static void subtitle_libass_message_cb( int level, const char *fmt, va_list va, void *data )
+{
+	char msg[512];
+	(void)data;
+
+	vsnprintf( msg, sizeof( msg ), fmt, va );
+	msg[sizeof( msg ) - 1] = '\0';
+	serprintf( "subtitle_libass: libass[%d]: %s\n", level, msg );
+}
+
 static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
 {
 	SUBTITLE_LIBASS_RENDERER *renderer = acalloc( 1, sizeof( *renderer ) );
-	if( !renderer )
+	if( !renderer ) {
+		serprintf( "subtitle_libass: renderer allocation failed\n" );
 		return NULL;
+	}
 
 	renderer->library = ass_library_init();
-	if( !renderer->library )
+	if( !renderer->library ) {
+		serprintf( "subtitle_libass: ass_library_init failed\n" );
 		goto ErrorExit;
+	}
+
+	ass_set_message_cb( renderer->library, subtitle_libass_message_cb, NULL );
 
 	ass_set_extract_fonts( renderer->library, 1 );
 
 	renderer->renderer = ass_renderer_init( renderer->library );
-	if( !renderer->renderer )
+	if( !renderer->renderer ) {
+		serprintf( "subtitle_libass: ass_renderer_init failed\n" );
 		goto ErrorExit;
+	}
 
 	ass_set_fonts( renderer->renderer, NULL, "sans-serif", ASS_FONTPROVIDER_AUTODETECT, NULL, 1 );
+	serprintf( "subtitle_libass: renderer ready\n" );
 	return renderer;
 
 ErrorExit:
@@ -60,18 +81,25 @@ ErrorExit:
 
 SUBTITLE_LIBASS_RENDERER *subtitle_libass_open_codec_private( const unsigned char *data, int size )
 {
-	if( !data || size <= 0 )
+	if( !data || size <= 0 ) {
+		serprintf( "subtitle_libass: missing embedded codec private data\n" );
 		return NULL;
+	}
+
+	serprintf( "subtitle_libass: opening embedded ASS/SSA codec private data, size=%d\n", size );
 
 	SUBTITLE_LIBASS_RENDERER *renderer = subtitle_libass_alloc();
 	if( !renderer )
 		return NULL;
 
 	renderer->track = ass_new_track( renderer->library );
-	if( !renderer->track )
+	if( !renderer->track ) {
+		serprintf( "subtitle_libass: ass_new_track failed for embedded ASS/SSA\n" );
 		goto ErrorExit;
+	}
 
 	ass_process_codec_private( renderer->track, (char*)data, size );
+	serprintf( "subtitle_libass: embedded ASS/SSA track opened\n" );
 	return renderer;
 
 ErrorExit:
@@ -81,17 +109,24 @@ ErrorExit:
 
 SUBTITLE_LIBASS_RENDERER *subtitle_libass_open_file( const char *path )
 {
-	if( !path )
+	if( !path ) {
+		serprintf( "subtitle_libass: missing ASS/SSA file path\n" );
 		return NULL;
+	}
+
+	serprintf( "subtitle_libass: opening ASS/SSA file [%s]\n", path );
 
 	SUBTITLE_LIBASS_RENDERER *renderer = subtitle_libass_alloc();
 	if( !renderer )
 		return NULL;
 
 	renderer->track = ass_read_file( renderer->library, (char*)path, NULL );
-	if( !renderer->track )
+	if( !renderer->track ) {
+		serprintf( "subtitle_libass: ass_read_file failed for [%s]\n", path );
 		goto ErrorExit;
+	}
 
+	serprintf( "subtitle_libass: ASS/SSA file opened [%s]\n", path );
 	return renderer;
 
 ErrorExit:
@@ -103,6 +138,7 @@ void subtitle_libass_close( SUBTITLE_LIBASS_RENDERER *renderer )
 {
 	if( !renderer )
 		return;
+	serprintf( "subtitle_libass: closing renderer\n" );
 	if( renderer->track )
 		ass_free_track( renderer->track );
 	if( renderer->renderer )
@@ -114,9 +150,12 @@ void subtitle_libass_close( SUBTITLE_LIBASS_RENDERER *renderer )
 
 int subtitle_libass_process_chunk( SUBTITLE_LIBASS_RENDERER *renderer, const unsigned char *data, int size, int time_ms, int duration_ms )
 {
-	if( !renderer || !renderer->track || !data || size <= 0 )
+	if( !renderer || !renderer->track || !data || size <= 0 ) {
+		serprintf( "subtitle_libass: dropping invalid chunk renderer=%p data=%p size=%d\n", renderer, data, size );
 		return 1;
+	}
 
+	serprintf( "subtitle_libass: process chunk size=%d time=%d duration=%d\n", size, time_ms, duration_ms );
 	ass_process_chunk( renderer->track, (char*)data, size, time_ms, duration_ms );
 	return 0;
 }
@@ -149,24 +188,31 @@ static void blend_pixel( unsigned char *dst, int r, int g, int b, int src_a )
 
 int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int duration_ms, int width, int height, VIDEO_FRAME *frame )
 {
-	if( !renderer || !renderer->renderer || !renderer->track || !frame || width <= 0 || height <= 0 )
+	if( !renderer || !renderer->renderer || !renderer->track || !frame || width <= 0 || height <= 0 ) {
+		serprintf( "subtitle_libass: invalid render request renderer=%p frame=%p size=%dx%d\n", renderer, frame, width, height );
 		return 1;
+	}
 
 	ass_set_frame_size( renderer->renderer, width, height );
+	serprintf( "subtitle_libass: render request time=%d duration=%d frame=%dx%d\n", time_ms, duration_ms, width, height );
 
 	int changed = 0;
 	ASS_Image *images = ass_render_frame( renderer->renderer, renderer->track, time_ms, &changed );
-	if( !images )
+	if( !images ) {
+		serprintf( "subtitle_libass: render produced no images at time=%d changed=%d\n", time_ms, changed );
 		return 1;
+	}
 
 	int left = width;
 	int top = height;
 	int right = 0;
 	int bottom = 0;
+	int image_count = 0;
 
 	for( ASS_Image *img = images; img; img = img->next ) {
 		if( !img->bitmap || img->w <= 0 || img->h <= 0 )
 			continue;
+		image_count++;
 
 		int x0 = clamp_int( img->dst_x, 0, width );
 		int y0 = clamp_int( img->dst_y, 0, height );
@@ -186,8 +232,10 @@ int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int
 			bottom = y1;
 	}
 
-	if( left >= right || top >= bottom )
+	if( left >= right || top >= bottom ) {
+		serprintf( "subtitle_libass: render images had empty bounding box count=%d\n", image_count );
 		return 1;
+	}
 
 	int bb_width = right - left;
 	int bb_height = bottom - top;
@@ -210,6 +258,8 @@ int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int
 	frame->colorspace = AV_IMAGE_BGRA_32;
 	frame->valid = size;
 	frame->duration = duration_ms;
+	serprintf( "subtitle_libass: render output images=%d bbox=%d,%d %dx%d stride=%d bytes=%d changed=%d\n",
+		image_count, left, top, bb_width, bb_height, stride, size, changed );
 
 	for( ASS_Image *img = images; img; img = img->next ) {
 		if( !img->bitmap || img->w <= 0 || img->h <= 0 )

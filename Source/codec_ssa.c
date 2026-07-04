@@ -239,12 +239,18 @@ DBGS serprintf("sub_dec_open_SSA\r\n");
 	SSA_PRIV *priv = (SSA_PRIV*)dec->priv;
 #ifdef CONFIG_LIBASS
 	sub->gfx = 0;
+	serprintf( "codec_ssa: CONFIG_LIBASS enabled for embedded SSA/ASS, extraDataSize=%d\n", sub->extraDataSize2 );
 	if( sub->extraData2 && sub->extraDataSize2 ) {
 		priv->renderer = subtitle_libass_open_codec_private( sub->extraData2, sub->extraDataSize2 );
 		if( priv->renderer ) {
 			priv->use_libass = 1;
 			sub->gfx = 1;
+			serprintf( "codec_ssa: embedded SSA/ASS will render through libass bitmap path\n" );
+		} else {
+			serprintf( "codec_ssa: libass open failed, falling back to legacy SSA text parser\n" );
 		}
+	} else {
+		serprintf( "codec_ssa: no embedded SSA/ASS codec private data, falling back to legacy SSA text parser\n" );
 	}
 #endif
 	// try to parse the header
@@ -304,9 +310,15 @@ DBG2 Dump( data, size );
 		int render_time = time;
 		int duration = frame->duration > 0 ? frame->duration : 100000;
 
+		serprintf( "codec_ssa: libass decode packet size=%d time=%d duration=%d frame=%dx%d\n",
+			size, render_time, duration, frame->width, frame->height );
 		subtitle_libass_process_chunk( priv->renderer, data, size, render_time, duration );
 		if( subtitle_libass_render( priv->renderer, render_time, duration, frame->width, frame->height, frame ) ) {
+			serprintf( "codec_ssa: libass rendered no bitmap for packet time=%d\n", render_time );
 			*pframe = NULL;
+		} else {
+			serprintf( "codec_ssa: libass bitmap ready time=%d window=%d,%d %dx%d valid=%d\n",
+				frame->time, frame->window.x, frame->window.y, frame->window.width, frame->window.height, frame->valid );
 		}
 		return 0;
 	}

@@ -248,9 +248,14 @@ static uni_sub *parse_SSA( subt_orig *spex, int clean_tags )
 	uni_sub *sub_record = acalloc(1,sizeof(uni_sub));
 	sub_record->format = spex->format;
 #ifdef CONFIG_LIBASS
+	serprintf( "subtitle_ssa: CONFIG_LIBASS enabled for external ASS/SSA [%s]\n", spex->filename );
 	sub_record->priv = subtitle_libass_open_file( spex->filename );
-	if( sub_record->priv )
+	if( sub_record->priv ) {
 		sub_record->gfx = 1;
+		serprintf( "subtitle_ssa: external ASS/SSA will render through libass bitmap path\n" );
+	} else {
+		serprintf( "subtitle_ssa: libass open failed for [%s], falling back to legacy text parser\n", spex->filename );
+	}
 #endif
 
 	line = subtitle_get_next_line(_line, LINE_LEN,fd);
@@ -322,7 +327,16 @@ static int render_gfx_SSA( uni_sub *sub, sub_line *line, VIDEO_FRAME *frame )
 		duration = frame->duration;
 
 	int render_time = line->pos ? line->pos : line->start;
-	return subtitle_libass_render( sub->priv, render_time, duration, frame->width, frame->height, frame );
+	serprintf( "subtitle_ssa: libass render external line start=%d end=%d pos=%d duration=%d frame=%dx%d\n",
+		line->start, line->end, line->pos, duration, frame->width, frame->height );
+	int ret = subtitle_libass_render( sub->priv, render_time, duration, frame->width, frame->height, frame );
+	if( ret ) {
+		serprintf( "subtitle_ssa: libass rendered no bitmap for external line pos=%d\n", render_time );
+	} else {
+		serprintf( "subtitle_ssa: libass bitmap ready time=%d window=%d,%d %dx%d valid=%d\n",
+			frame->time, frame->window.x, frame->window.y, frame->window.width, frame->window.height, frame->valid );
+	}
+	return ret;
 }
 
 static int close_SSA( uni_sub *sub )
