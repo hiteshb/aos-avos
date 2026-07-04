@@ -48,9 +48,10 @@ include  $(LOCAL_PATH)/ndkbuild.mk
 ### libass ###
 
 ifeq ($(LIBASS),ON)
+LOCAL_PATH := $(AVOS_DIR)/..
 include $(CLEAR_VARS)
 LOCAL_MODULE := libass
-LOCAL_SRC_FILES := $(LIBASS_CONFIG_DIR)/lib/libass.so
+LOCAL_SRC_FILES := prebuilt/libass/dist-$(TARGET_ARCH_ABI)/lib/libass.so
 LOCAL_EXPORT_C_INCLUDES := $(LIBASS_CONFIG_DIR)/include
 include $(PREBUILT_SHARED_LIBRARY)
 endif
