@@ -27,6 +27,9 @@ ifeq ($(LIBAV_CONFIG),)
 endif
 LIBAV_CONFIG_DIR := $(LIBAV_DIR)/dist-$(LIBAV_CONFIG)-$(TARGET_ARCH_ABI)
 
+LIBASS_DIR := $(AVOS_DIR)/../prebuilt/libass
+LIBASS_CONFIG_DIR := $(LIBASS_DIR)/dist-$(TARGET_ARCH_ABI)
+
 AUDIOCOMPRESS_DIR := $(AVOS_DIR)/../audiocompress
 
 ifeq ($(TARGET_ARCH_ABI),armeabi)
@@ -41,6 +44,16 @@ HAVE_ANDROID_SYSTEM_PROP := true
 
 LOCAL_PATH := $(ANDROID_DIR)/libavos_android
 include  $(LOCAL_PATH)/ndkbuild.mk
+
+### libass ###
+
+ifeq ($(LIBASS),ON)
+include $(CLEAR_VARS)
+LOCAL_MODULE := libass
+LOCAL_SRC_FILES := $(LIBASS_CONFIG_DIR)/lib/libass.so
+LOCAL_EXPORT_C_INCLUDES := $(LIBASS_CONFIG_DIR)/include
+include $(PREBUILT_SHARED_LIBRARY)
+endif
 
 ### avos ###
 
