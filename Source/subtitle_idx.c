@@ -394,8 +394,8 @@ static struct SUBTITLE_FORMAT IDX = {
 	info_IDX,
 	parse_IDX,
 	get_gfx_IDX,
+	NULL,
 	close_IDX,
 };
 
 SUBTITLE_REGISTER_FORMAT( IDX );
-
