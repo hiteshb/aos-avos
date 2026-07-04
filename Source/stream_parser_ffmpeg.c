@@ -607,6 +607,10 @@ DBGP serprintf( "arate=%d; ascale=%d\n", audio->rate, audio->scale );
 				serprintf("sub->codec_name %s\n", sub->codec_name);
 				sub->format         = fmt;
 				sub->gfx            = (sub->format == SUB_FORMAT_DVD_GFX || sub->format == SUB_FORMAT_PGS) ? 1 : 0;
+#ifdef CONFIG_LIBASS
+				if( sub->format == SUB_FORMAT_SSA )
+					sub->gfx = 1;
+#endif
 				sub->stream         = i;
 				sub->scale          = st->time_base.num;
 				sub->rate           = st->time_base.den;
@@ -1560,7 +1564,13 @@ DBGC32 serprintf("  S  siz %6d  pos %8lld   tim %8d  pkt %6d  %8d\r\n", packet->
 	
 	int duration_rst = GET_SUB_TS( packet->duration );
 	int duration_ts = RST_TO_TS_DELTA(duration_rst, int);
+	cdata->duration = duration_ts;
 	if( s->subtitle->format == SUB_FORMAT_SSA ) {
+#ifdef CONFIG_LIBASS
+		if( s->subtitle->gfx ) {
+			memcpy( sub_buffer->data, packet->data, packet->size );
+		} else
+#endif
 		cdata->size = msk_fixup_ssa( sub_buffer->data, sub_buffer->size, packet->data, packet->size, cdata->time, duration_ts );
 	} else if( s->subtitle->format == SUB_FORMAT_TEXT ) {
 		cdata->size = msk_fixup_srt( sub_buffer->data, sub_buffer->size, packet->data, packet->size, cdata->time, duration_ts );

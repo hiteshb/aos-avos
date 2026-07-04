@@ -20,6 +20,7 @@
 #include "astdlib.h"
 #include "stream.h"
 #include "util.h"
+#include "subtitle_libass.h"
 
 #include <string.h>
 #include <ctype.h>
@@ -36,6 +37,10 @@ typedef struct SSA_PRIV {
 	int start;
 	int end;
 	int text;
+#ifdef CONFIG_LIBASS
+	SUBTITLE_LIBASS_RENDERER *renderer;
+	int use_libass;
+#endif
 } SSA_PRIV;
 
 #define SKIP_SPACE(x) while(*x && isspace(*x)){x++;}
@@ -219,9 +224,10 @@ DBGS serprintf("end:   %s  %d  ", word, frame->duration  );
 	if( count == priv->text ) {
 		word = c;
 DBGS serprintf("text:  %s\r\n", word );
-		strnZcpy( frame->data[0], word, frame->size - 1 );
+		if( frame->data[0] )
+			strnZcpy( frame->data[0], word, frame->size - 1 );
 		//SSA_clean_text( frame->data[0] );
-DBGS serprintf("clean: %s\r\n", frame->data[0] );
+DBGS if( frame->data[0] ) serprintf("clean: %s\r\n", frame->data[0] );
 	}	
 	return 0;
 }
@@ -230,10 +236,28 @@ DBGS serprintf("clean: %s\r\n", frame->data[0] );
 static int _open( STREAM_DEC_SUB *dec, SUB_PROPERTIES *sub, void *ctx )
 {
 DBGS serprintf("sub_dec_open_SSA\r\n");
+	SSA_PRIV *priv = (SSA_PRIV*)dec->priv;
+#ifdef CONFIG_LIBASS
+	sub->gfx = 0;
+	if( sub->extraData2 && sub->extraDataSize2 ) {
+		priv->renderer = subtitle_libass_open_codec_private( sub->extraData2, sub->extraDataSize2 );
+		if( priv->renderer ) {
+			priv->use_libass = 1;
+			sub->gfx = 1;
+		}
+	}
+#endif
 	// try to parse the header
 	if( sub->extraData2 && sub->extraDataSize2 ) {
 DBG Dump( sub->extraData2, MIN(1024, sub->extraDataSize2) );
-		if( SSA_parse_header( sub->extraData2, (SSA_PRIV*)dec->priv ) ) {
+		if( SSA_parse_header( sub->extraData2, priv ) ) {
+#ifdef CONFIG_LIBASS
+			if( priv->renderer ) {
+				subtitle_libass_close( priv->renderer );
+				priv->renderer = NULL;
+				priv->use_libass = 0;
+			}
+#endif
 			return 1;
 		}
 	}  
@@ -255,6 +279,14 @@ DBGS serprintf( "sub_dec_close_SSA\r\n");
 serprintf("SSA: not open!\r\n");
 		return 1;
 	}
+#ifdef CONFIG_LIBASS
+	SSA_PRIV *priv = (SSA_PRIV*)dec->priv;
+	if( priv && priv->renderer ) {
+		subtitle_libass_close( priv->renderer );
+		priv->renderer = NULL;
+		priv->use_libass = 0;
+	}
+#endif
 	
 	dec->is_open = 0;
  	return 0;
@@ -264,7 +296,22 @@ static int _decode( STREAM_DEC_SUB *dec, UCHAR *data, int size, int time, VIDEO_
 {
 DBG serprintf("SSA_decode: size %5d  time %d  [%s]\r\n", size, time, data );	
 DBG2 Dump( data, size );
-	SSA_parse_dialogue( data, size, (SSA_PRIV*)dec->priv, *pframe );
+	SSA_PRIV *priv = (SSA_PRIV*)dec->priv;
+#ifdef CONFIG_LIBASS
+	if( priv->use_libass && priv->renderer ) {
+		VIDEO_FRAME *frame = *pframe;
+		frame->time = time;
+		int render_time = time;
+		int duration = frame->duration > 0 ? frame->duration : 100000;
+
+		subtitle_libass_process_chunk( priv->renderer, data, size, render_time, duration );
+		if( subtitle_libass_render( priv->renderer, render_time, duration, frame->width, frame->height, frame ) ) {
+			*pframe = NULL;
+		}
+		return 0;
+	}
+#endif
+	SSA_parse_dialogue( data, size, priv, *pframe );
 	return 0;
 }
 
@@ -276,8 +323,14 @@ static int _flush( STREAM_DEC_SUB *dec )
 static int _destroy( STREAM_DEC_SUB *dec )
 {
 	if( dec	) {
-		if( dec->priv )
+		if( dec->priv ) {
+#ifdef CONFIG_LIBASS
+			SSA_PRIV *priv = (SSA_PRIV*)dec->priv;
+			if( priv->renderer )
+				subtitle_libass_close( priv->renderer );
+#endif
 			afree( dec->priv );
+		}
 		afree( dec );
 	}
 	return 0;

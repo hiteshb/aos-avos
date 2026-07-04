@@ -190,7 +190,7 @@ DBGS serprintf("stream_sub_ext_check: [%s]\r\n", s->sub_url[0] ? s->sub_url[0] :
 		SUB_PROPERTIES *sub = s->av.sub + s->av.subs_max;
 	
 		sub->format         = p->subs->converted[i]->vobsub ? SUB_FORMAT_DVD_GFX : SUB_FORMAT_EXT;
-		sub->gfx            = p->subs->converted[i]->vobsub ? 1 : 0;
+		sub->gfx            = (p->subs->converted[i]->vobsub || p->subs->converted[i]->gfx) ? 1 : 0;
 		sub->ext            = 1;
 		sub->stream         = i;
 		sub->valid          = 1;
@@ -320,9 +320,15 @@ DBG3 serprintf("sub: wait [%8d] %8d -> %8d [%s][%s]\r\n", time, start, end, p->s
 DBG2 serprintf("sub: out  [%8d] %8d -> %8d TOP[%s] BOT[%s]\r\n", time, start, end, p->out->top, p->out->bottom );
 		
 		VIDEO_FRAME *frame = *pframe;
+		frame->time      = RST_TO_TS_TIME(start, int);
+		frame->duration  = RST_TO_TS_DELTA(end - start, int);
 		if( s->subtitle->gfx ) {
 			frame->valid = frame->size;
-			subtitle_get_gfx( p->subs->converted[p->stream], p->out->pos, frame->data[0], &frame->valid );
+			if( subtitle_render_gfx( p->subs->converted[p->stream], p->out, frame ) ) {
+				if( subtitle_get_gfx( p->subs->converted[p->stream], p->out->pos, frame->data[0], &frame->valid ) ) {
+					return 1;
+				}
+			}
 		} else {
 			int   max = frame->size - 1;
 			char *src = p->out->top;
@@ -348,9 +354,6 @@ DBG2 serprintf("sub: out  [%8d] %8d -> %8d TOP[%s] BOT[%s]\r\n", time, start, en
 			}
 			*dst = '\0';
 		}
-			
-		frame->time      = RST_TO_TS_TIME(start, int);
-		frame->duration  = RST_TO_TS_DELTA(end - start, int);
 
 		p->sub = p->sub->next;
 		return 0;

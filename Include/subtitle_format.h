@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <stdint.h>
 
+struct vfr_str;
+
 //if the subtitle contains title for multiple languages
 //it should fill this field in info_XXX function
 
@@ -86,6 +88,7 @@ typedef struct sub_line_t
 typedef struct uni_sub_t
 {
 	int frame_multiplier;
+	int gfx;
 	int vobsub;
 	int vobsub_fd;
 	unsigned char *vobsub_data;
@@ -94,6 +97,7 @@ typedef struct uni_sub_t
 	int has_palette;
 	uint32_t palette[16];
 	struct SUBTITLE_FORMAT *format;
+	void *priv;
         char *identifier;
 	sub_line *first;
 	sub_line *last;
@@ -114,6 +118,7 @@ typedef struct SUBTITLE_FORMAT {
 	sub_coding_style**	(*info)( FILE * file, int *cnt, uint32_t *palette, int *has_palette );
 	uni_sub*		(*parse)( subt_orig *subs, int clean_tags );
 	int			(*get_gfx)( uni_sub *subs, uint32_t pos, uint8_t *data, int *size );
+	int			(*render_gfx)( uni_sub *subs, sub_line *line, struct vfr_str *frame );
 	int			(*close)( uni_sub *subs );
 } SUBTITLE_FORMAT;
 
@@ -141,6 +146,7 @@ subtitle_files *subtitle_check_files( const char **path_list, const char *filena
 void            subtitle_free_files( subtitle_files *files );
 converted_subs *subtitle_get_converted( subtitle_files *sub_files, int clean_tags );
 int  		subtitle_get_gfx( uni_sub *subs, uint32_t pos, uint8_t *data, int *size );
+int  		subtitle_render_gfx( uni_sub *subs, sub_line *line, struct vfr_str *frame );
 void            subtitle_free_converted( converted_subs *subs );
 char           *subtitle_get_description( subt_orig *title );
 

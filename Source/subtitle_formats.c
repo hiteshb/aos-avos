@@ -279,6 +279,14 @@ int subtitle_get_gfx( uni_sub *subs, uint32_t pos, uint8_t *data, int *size )
 	return 1;
 }
 
+int subtitle_render_gfx( uni_sub *subs, sub_line *line, struct vfr_str *frame )
+{
+	if( subs && subs->format && subs->format->render_gfx ) {
+		return subs->format->render_gfx( subs, line, frame );
+	}
+	return 1;
+}
+
 char *subtitle_get_description( subt_orig * title )
 {
 	return ( astrdup( title->format->name ) );

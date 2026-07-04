@@ -17,6 +17,7 @@
 #include "global.h"
 #include "debug.h"
 #include "subtitle_format.h"
+#include "subtitle_libass.h"
 #include "i18n.h"
 #include "util.h"
 #include "astdlib.h"
@@ -245,6 +246,12 @@ static uni_sub *parse_SSA( subt_orig *spex, int clean_tags )
 		return 0;
 	}
 	uni_sub *sub_record = acalloc(1,sizeof(uni_sub));
+	sub_record->format = spex->format;
+#ifdef CONFIG_LIBASS
+	sub_record->priv = subtitle_libass_open_file( spex->filename );
+	if( sub_record->priv )
+		sub_record->gfx = 1;
+#endif
 
 	line = subtitle_get_next_line(_line, LINE_LEN,fd);
 	while(line){
@@ -256,6 +263,7 @@ static uni_sub *parse_SSA( subt_orig *spex, int clean_tags )
 			Xfgets(line, LINE_LEN,fd)
 			continue;
 		}
+		new_line->pos = new_line->start;
 		if(!sub_record->first){
 			sub_record->first = new_line;
 			sub_record->last  = new_line;
@@ -291,6 +299,10 @@ static uni_sub *parse_SSA( subt_orig *spex, int clean_tags )
 	}
 	fclose(fd);
 	if(!sub_record->first){ //nothing could be acquired
+#ifdef CONFIG_LIBASS
+		if( sub_record->priv )
+			subtitle_libass_close( sub_record->priv );
+#endif
 		afree(sub_record);
 		afree(relevant);
 		return 0;
@@ -299,11 +311,40 @@ static uni_sub *parse_SSA( subt_orig *spex, int clean_tags )
 	return sub_record;
 }
 
+#ifdef CONFIG_LIBASS
+static int render_gfx_SSA( uni_sub *sub, sub_line *line, VIDEO_FRAME *frame )
+{
+	if( !sub || !sub->priv || !line || !frame )
+		return 1;
+
+	int duration = line->end - line->start;
+	if( duration <= 0 )
+		duration = frame->duration;
+
+	int render_time = line->pos ? line->pos : line->start;
+	return subtitle_libass_render( sub->priv, render_time, duration, frame->width, frame->height, frame );
+}
+
+static int close_SSA( uni_sub *sub )
+{
+	if( sub && sub->priv ) {
+		subtitle_libass_close( sub->priv );
+		sub->priv = NULL;
+	}
+	return 0;
+}
+#endif
+
 static struct SUBTITLE_FORMAT SSA = {
 	"SubStation",
 	detect_SSA,
 	NULL,		// no info
 	parse_SSA,
+#ifdef CONFIG_LIBASS
+	NULL,
+	render_gfx_SSA,
+	close_SSA,
+#endif
 };
 
 SUBTITLE_REGISTER_FORMAT( SSA );

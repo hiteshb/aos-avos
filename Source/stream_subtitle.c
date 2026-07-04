@@ -181,6 +181,7 @@ serprintf("cannot allocate subtitle frame!\r\n");
 			if( s->cdata_sub.time == -1 || s->cdata_sub.time <= time ) {
 				VIDEO_FRAME *f = s->subtitle_frame;
 //DBG serprintf("SUB: size %5d  sub %8d  video %8d\r\n", s->cdata_sub.size, s->cdata_sub.time, s->video_time );
+				f->duration = s->cdata_sub.duration;
 				s->sub_dec->decode( s->sub_dec, s->sub_buffer.data, s->cdata_sub.size, s->cdata_sub.time, &f ); 
 				s->cdata_sub.valid = 0;
 				if( f ) {

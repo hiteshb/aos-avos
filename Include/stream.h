@@ -126,6 +126,7 @@ typedef struct STREAM_CDATA
 	int  		type;
 	int		frame;
 	int		time;
+	int		duration;
 	int		size;
 	int		key;
 	int		video_skip;
