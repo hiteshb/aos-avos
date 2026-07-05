@@ -317,14 +317,14 @@ DBG2 Dump( data, size );
 		int render_time = time;
 		int duration = frame->duration > 0 ? frame->duration : 100000;
 
-		serprintf( "codec_ssa: libass decode packet size=%d time=%d duration=%d frame=%dx%d\n",
+		DBG serprintf( "codec_ssa: libass decode packet size=%d time=%d duration=%d frame=%dx%d\n",
 			size, render_time, duration, frame->width, frame->height );
 		subtitle_libass_process_chunk( priv->renderer, data, size, render_time, duration );
 		if( subtitle_libass_render( priv->renderer, render_time, duration, frame->width, frame->height, frame ) ) {
 			serprintf( "codec_ssa: libass rendered no bitmap for packet time=%d\n", render_time );
 			*pframe = NULL;
 		} else {
-			serprintf( "codec_ssa: libass bitmap ready time=%d window=%d,%d %dx%d valid=%d\n",
+			DBG serprintf( "codec_ssa: libass bitmap ready time=%d window=%d,%d %dx%d valid=%d\n",
 				frame->time, frame->window.x, frame->window.y, frame->window.width, frame->window.height, frame->valid );
 		}
 		return 0;

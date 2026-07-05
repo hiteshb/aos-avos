@@ -327,13 +327,13 @@ static int render_gfx_SSA( uni_sub *sub, sub_line *line, VIDEO_FRAME *frame )
 		duration = frame->duration;
 
 	int render_time = line->pos ? line->pos : line->start;
-	serprintf( "subtitle_ssa: libass render external line start=%d end=%d pos=%d duration=%d frame=%dx%d\n",
+	DBG serprintf( "subtitle_ssa: libass render external line start=%d end=%d pos=%d duration=%d frame=%dx%d\n",
 		line->start, line->end, line->pos, duration, frame->width, frame->height );
 	int ret = subtitle_libass_render( sub->priv, render_time, duration, frame->width, frame->height, frame );
 	if( ret ) {
 		serprintf( "subtitle_ssa: libass rendered no bitmap for external line pos=%d\n", render_time );
 	} else {
-		serprintf( "subtitle_ssa: libass bitmap ready time=%d window=%d,%d %dx%d valid=%d\n",
+		DBG serprintf( "subtitle_ssa: libass bitmap ready time=%d window=%d,%d %dx%d valid=%d\n",
 			frame->time, frame->window.x, frame->window.y, frame->window.width, frame->window.height, frame->valid );
 	}
 	return ret;

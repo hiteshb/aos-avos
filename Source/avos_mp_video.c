@@ -121,7 +121,7 @@ static void send_subtitle(avos_mp_t *mp, avos_mp_video_t *video)
 	sub_time = sub_frame->time - SUBTITLE_SEND_OFFSET;
 
 	if (video->s->av.sub[video->s->av.subs].gfx) {
-		serprintf("avos_mp_video: sending bitmap subtitle time=%d duration=%d frame=%dx%d window=%d,%d %dx%d valid=%d\n",
+		DBG serprintf("avos_mp_video: sending bitmap subtitle time=%d duration=%d frame=%dx%d window=%d,%d %dx%d valid=%d\n",
 			sub_time, sub_frame->duration, sub_frame->width, sub_frame->height,
 			sub_frame->window.x, sub_frame->window.y, sub_frame->window.width, sub_frame->window.height,
 			sub_frame->valid);

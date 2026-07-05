@@ -17,10 +17,14 @@
 
 #include <ass/ass.h>
 #include <libavutil/mem.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+
+#define LIBASS_BOUNDARY_RETRY_MS 10
+#define LIBASS_FALLBACK_FONT_MAX_BYTES (30 * 1024 * 1024)
 
 struct SUBTITLE_LIBASS_RENDERER {
 	ASS_Library *library;
@@ -28,7 +32,13 @@ struct SUBTITLE_LIBASS_RENDERER {
 	ASS_Track *track;
 	const char *default_font;
 	int embedded_fonts;
+	int fallback_fonts;
 };
+
+static int subtitle_libass_log_verbose = 0;
+DECLARE_DEBUG_PARAM( "asslog", subtitle_libass_log_verbose );
+
+#define ASS_LOG_VERBOSE(...) do { if( subtitle_libass_log_verbose ) serprintf( __VA_ARGS__ ); } while( 0 )
 
 static int clamp_int( int value, int low, int high )
 {
@@ -46,7 +56,8 @@ static void subtitle_libass_message_cb( int level, const char *fmt, va_list va, 
 
 	vsnprintf( msg, sizeof( msg ), fmt, va );
 	msg[sizeof( msg ) - 1] = '\0';
-	serprintf( "subtitle_libass: libass[%d]: %s\n", level, msg );
+	if( level <= 2 || subtitle_libass_log_verbose )
+		serprintf( "subtitle_libass: libass[%d]: %s\n", level, msg );
 }
 
 static const char *subtitle_libass_find_default_font( void )
@@ -71,16 +82,133 @@ static const char *subtitle_libass_find_default_font( void )
 	return NULL;
 }
 
+static const char *subtitle_libass_basename( const char *path )
+{
+	const char *slash = path ? strrchr( path, '/' ) : NULL;
+	return slash ? slash + 1 : path;
+}
+
+static int subtitle_libass_read_font_file( const char *path, unsigned char **data, int *size )
+{
+	FILE *file = NULL;
+	unsigned char *buffer = NULL;
+	long file_size = 0;
+
+	if( !path || !data || !size )
+		return 1;
+
+	*data = NULL;
+	*size = 0;
+
+	file = fopen( path, "rb" );
+	if( !file )
+		return 1;
+
+	if( fseek( file, 0, SEEK_END ) || ( file_size = ftell( file ) ) <= 0 ) {
+		serprintf( "subtitle_libass: cannot size fallback font [%s], errno=%d\n", path, errno );
+		goto ErrorExit;
+	}
+
+	if( file_size > LIBASS_FALLBACK_FONT_MAX_BYTES ) {
+		serprintf( "subtitle_libass: skipping very large fallback font [%s] size=%ld\n", path, file_size );
+		goto ErrorExit;
+	}
+
+	if( fseek( file, 0, SEEK_SET ) ) {
+		serprintf( "subtitle_libass: cannot rewind fallback font [%s], errno=%d\n", path, errno );
+		goto ErrorExit;
+	}
+
+	buffer = amalloc( file_size );
+	if( !buffer ) {
+		serprintf( "subtitle_libass: cannot allocate fallback font [%s] size=%ld\n", path, file_size );
+		goto ErrorExit;
+	}
+
+	if( fread( buffer, 1, file_size, file ) != (size_t)file_size ) {
+		serprintf( "subtitle_libass: cannot read fallback font [%s] size=%ld\n", path, file_size );
+		goto ErrorExit;
+	}
+
+	fclose( file );
+	*data = buffer;
+	*size = (int)file_size;
+	return 0;
+
+ErrorExit:
+	if( buffer )
+		afree( buffer );
+	if( file )
+		fclose( file );
+	return 1;
+}
+
 static void subtitle_libass_configure_fonts( SUBTITLE_LIBASS_RENDERER *renderer, const char *reason )
 {
 	if( !renderer || !renderer->renderer )
 		return;
 
 	ass_set_fonts( renderer->renderer, renderer->default_font, "sans-serif", ASS_FONTPROVIDER_AUTODETECT, NULL, 1 );
-	serprintf( "subtitle_libass: fonts configured reason=%s default_font=%s embedded_fonts=%d provider=autodetect\n",
+	serprintf( "subtitle_libass: fonts configured reason=%s default_font=%s embedded_fonts=%d fallback_fonts=%d provider=autodetect\n",
 		reason ? reason : "(null)",
 		renderer->default_font ? renderer->default_font : "(null)",
-		renderer->embedded_fonts );
+		renderer->embedded_fonts,
+		renderer->fallback_fonts );
+}
+
+static int subtitle_libass_add_memory_font( SUBTITLE_LIBASS_RENDERER *renderer, const char *name, const unsigned char *data, int size, int fallback, int reconfigure )
+{
+	if( !renderer || !renderer->library || !name || !data || size <= 0 ) {
+		serprintf( "subtitle_libass: invalid %s font renderer=%p name=%s data=%p size=%d\n",
+			fallback ? "fallback" : "embedded", renderer, name ? name : "(null)", data, size );
+		return 1;
+	}
+
+	serprintf( "subtitle_libass: adding %s font [%s] size=%d\n", fallback ? "fallback" : "embedded", name, size );
+	ass_add_font( renderer->library, (char*)name, (char*)data, size );
+	if( fallback )
+		renderer->fallback_fonts++;
+	else
+		renderer->embedded_fonts++;
+	if( reconfigure )
+		subtitle_libass_configure_fonts( renderer, fallback ? "fallback-font" : "embedded-font" );
+	return 0;
+}
+
+static void subtitle_libass_add_android_fallback_fonts( SUBTITLE_LIBASS_RENDERER *renderer )
+{
+	static const char *fallbacks[] = {
+		"/system/fonts/NotoColorEmoji.ttf",
+		"/product/fonts/NotoColorEmoji.ttf",
+		"/system_ext/fonts/NotoColorEmoji.ttf",
+		"/system/fonts/NotoSansSymbols2-Regular.ttf",
+		"/system/fonts/NotoSansSymbols-Regular.ttf",
+		"/system/fonts/DroidSansFallback.ttf",
+		"/system/fonts/NotoSansCJK-Regular.ttc",
+		"/system/fonts/NotoSansCJK.ttc",
+		"/product/fonts/NotoSansCJK-Regular.ttc",
+		"/system_ext/fonts/NotoSansCJK-Regular.ttc",
+		NULL,
+	};
+	int added = 0;
+
+	if( !renderer || !renderer->library )
+		return;
+
+	for( int i = 0; fallbacks[i]; i++ ) {
+		unsigned char *data = NULL;
+		int size = 0;
+
+		if( access( fallbacks[i], R_OK ) != 0 )
+			continue;
+		if( subtitle_libass_read_font_file( fallbacks[i], &data, &size ) )
+			continue;
+		if( !subtitle_libass_add_memory_font( renderer, subtitle_libass_basename( fallbacks[i] ), data, size, 1, 0 ) )
+			added++;
+		afree( data );
+	}
+
+	serprintf( "subtitle_libass: Android fallback font files added=%d\n", added );
 }
 
 static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
@@ -112,6 +240,7 @@ static SUBTITLE_LIBASS_RENDERER *subtitle_libass_alloc( void )
 	}
 
 	renderer->default_font = subtitle_libass_find_default_font();
+	subtitle_libass_add_android_fallback_fonts( renderer );
 	subtitle_libass_configure_fonts( renderer, "initial" );
 	serprintf( "subtitle_libass: renderer ready\n" );
 	return renderer;
@@ -180,7 +309,7 @@ void subtitle_libass_close( SUBTITLE_LIBASS_RENDERER *renderer )
 {
 	if( !renderer )
 		return;
-	serprintf( "subtitle_libass: closing renderer\n" );
+	ASS_LOG_VERBOSE( "subtitle_libass: closing renderer\n" );
 	if( renderer->track )
 		ass_free_track( renderer->track );
 	if( renderer->renderer )
@@ -192,17 +321,7 @@ void subtitle_libass_close( SUBTITLE_LIBASS_RENDERER *renderer )
 
 int subtitle_libass_add_font( SUBTITLE_LIBASS_RENDERER *renderer, const char *name, const unsigned char *data, int size )
 {
-	if( !renderer || !renderer->library || !name || !data || size <= 0 ) {
-		serprintf( "subtitle_libass: invalid embedded font renderer=%p name=%s data=%p size=%d\n",
-			renderer, name ? name : "(null)", data, size );
-		return 1;
-	}
-
-	serprintf( "subtitle_libass: adding embedded font [%s] size=%d\n", name, size );
-	ass_add_font( renderer->library, (char*)name, (char*)data, size );
-	renderer->embedded_fonts++;
-	subtitle_libass_configure_fonts( renderer, "embedded-font" );
-	return 0;
+	return subtitle_libass_add_memory_font( renderer, name, data, size, 0, 1 );
 }
 
 int subtitle_libass_process_chunk( SUBTITLE_LIBASS_RENDERER *renderer, const unsigned char *data, int size, int time_ms, int duration_ms )
@@ -212,7 +331,7 @@ int subtitle_libass_process_chunk( SUBTITLE_LIBASS_RENDERER *renderer, const uns
 		return 1;
 	}
 
-	serprintf( "subtitle_libass: process chunk size=%d time=%d duration=%d\n", size, time_ms, duration_ms );
+	ASS_LOG_VERBOSE( "subtitle_libass: process chunk size=%d time=%d duration=%d\n", size, time_ms, duration_ms );
 	ass_process_chunk( renderer->track, (char*)data, size, time_ms, duration_ms );
 	return 0;
 }
@@ -251,12 +370,22 @@ int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int
 	}
 
 	ass_set_frame_size( renderer->renderer, width, height );
-	serprintf( "subtitle_libass: render request time=%d duration=%d frame=%dx%d default_font=%s embedded_fonts=%d\n",
+	ASS_LOG_VERBOSE( "subtitle_libass: render request time=%d duration=%d frame=%dx%d default_font=%s embedded_fonts=%d fallback_fonts=%d\n",
 		time_ms, duration_ms, width, height, renderer->default_font ? renderer->default_font : "(null)",
-		renderer->embedded_fonts );
+		renderer->embedded_fonts, renderer->fallback_fonts );
 
 	int changed = 0;
-	ASS_Image *images = ass_render_frame( renderer->renderer, renderer->track, time_ms, &changed );
+	int render_time = time_ms;
+	ASS_Image *images = ass_render_frame( renderer->renderer, renderer->track, render_time, &changed );
+	if( !images && duration_ms > LIBASS_BOUNDARY_RETRY_MS ) {
+		render_time = time_ms + LIBASS_BOUNDARY_RETRY_MS;
+		changed = 0;
+		images = ass_render_frame( renderer->renderer, renderer->track, render_time, &changed );
+		if( images ) {
+			serprintf( "subtitle_libass: recovered empty render by retrying time=%d original=%d\n",
+				render_time, time_ms );
+		}
+	}
 	if( !images ) {
 		serprintf( "subtitle_libass: render produced no images at time=%d changed=%d\n", time_ms, changed );
 		return 1;
@@ -317,8 +446,8 @@ int subtitle_libass_render( SUBTITLE_LIBASS_RENDERER *renderer, int time_ms, int
 	frame->colorspace = AV_IMAGE_BGRA_32;
 	frame->valid = size;
 	frame->duration = duration_ms;
-	serprintf( "subtitle_libass: render output images=%d bbox=%d,%d %dx%d stride=%d bytes=%d changed=%d\n",
-		image_count, left, top, bb_width, bb_height, stride, size, changed );
+	ASS_LOG_VERBOSE( "subtitle_libass: render output images=%d bbox=%d,%d %dx%d stride=%d bytes=%d changed=%d render_time=%d\n",
+		image_count, left, top, bb_width, bb_height, stride, size, changed, render_time );
 
 	for( ASS_Image *img = images; img; img = img->next ) {
 		if( !img->bitmap || img->w <= 0 || img->h <= 0 )
